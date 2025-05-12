@@ -1,0 +1,201 @@
+---
+output: 
+  pdf_document:
+    toc: false
+---
+
+```{r setup, include=FALSE}
+options(stringsAsFactors=FALSE, digits=1)
+knitr::opts_chunk$set(echo = FALSE, message=FALSE, warning=FALSE, error=FALSE, fig.width=6.5, dpi=100, dev="png")
+
+#load libraries -----
+library("tidyverse")
+library("rvest")
+library("lubridate")
+library("readxl")
+#library("pdftools")
+library("knitr")
+```
+
+```{r makePlot}
+#this function creates a ribbon to use to create water polygon -----
+getPoly<-function(ele) {
+  myPoly<-data.frame(x=seq(0, ele), ymin=seq(0, ele), ymax=rep(ele, n=ele))
+  return(myPoly)
+}
+
+#this function creates a faceted plot for the data passed (a waterbody) -----
+plotRamp<-function(myData){
+  
+  #get standard bottom and top
+  myBottom<-min(myData$r.bottom) - 3
+  myTop<-max(myData$r.top)+2
+  
+  #get factor to use in placing labels
+  #first adjust for different scales
+  myLabelNudgeScaleFactor<-myBottom/myTop 
+  
+  
+  #now adjust for number of facets
+  if(nrow(myData) > 1) {
+    myLabelNudgeScaleFactor<-1 * myLabelNudgeScaleFactor
+  } else {
+    myLabelNudgeScaleFactor<-0.5  * myLabelNudgeScaleFactor
+  }
+  
+  myData$oos_flag<-factor(as.numeric(myData$oos_flag))
+
+  p<-ggplot(data=myData) +
+    geom_ribbon(data=getPoly(myData$ele[1]), aes(x=x, ymin=ymin, ymax=ymax), color="lightblue", fill="lightblue") +
+    geom_segment(aes(x=myBottom, y=myBottom, xend=r.bottom, yend=r.bottom), size=0.5, color="black") +
+    geom_segment(aes(x=r.top, y=r.top, xend=r.top+2, yend=r.top+2), size=0.5, color="black") +
+    geom_segment(aes(x=r.top+2, y=r.top+2, xend=myTop+20, yend=r.top+2), size=0.5, color="black") +
+    geom_segment(aes(x=myBottom,y=r.cp, xend=r.cp, yend=r.cp), color="gray60") +
+    geom_segment(aes(x=r.bottom, y=r.bottom, xend=r.top, yend=r.top), size=3, color="black") +
+    geom_text(aes(x=r.top, y=r.top, label=paste("Top Of Ramp", "(", format(round(r.top,1), nsmall=1)," feet)", sep="")), nudge_y=myLabelNudgeScaleFactor*6, nudge_x=myLabelNudgeScaleFactor*14, size=2) +
+    geom_text(aes(x=r.bottom, y=r.bottom, label=paste("Bottom Of Ramp", " (", format(round(r.bottom,1), nsmall=1)," feet)", sep="")), nudge_x=myLabelNudgeScaleFactor*18, size=2) +
+    geom_text(aes(x=r.cp, y=r.cp, label=paste("Conservation Pool", " (", format(round(r.cp,1), nsmall=1)," feet)", sep="")), nudge_x=myLabelNudgeScaleFactor*5, size=2, hjust=0, color="gray60") +
+    geom_text(aes(x=myBottom, y=ele, label= paste(format(round(ele,1), nsmall=1)," feet", sep="")), nudge_x=myLabelNudgeScaleFactor*2, hjust=0, size=2, color="navy") +
+    geom_text(aes(x=((myTop+22+myBottom)/2),y=((myTop + 6 + myBottom)/2), label=oos), size=6, hjust=0.5, vjust=0.5, color="red", angle=-18) +
+    geom_rect(aes(xmin=myBottom, xmax=myTop+22, ymin=myBottom, ymax=myTop+6, alpha=oos_flag), fill="gray20") +
+    scale_x_continuous(limits=c(myBottom, myTop +22)) + scale_y_continuous(limits=c(myBottom, myTop +6))+
+    scale_alpha_manual(limits=c(0,1), values=c(0,0.3), guide=FALSE) +
+    theme_void() +
+    theme(panel.background=element_rect(color="black", fill=NA),
+          strip.background = element_rect(fill="gainsboro", color="black")) +
+    facet_wrap(~r.name, ncol=2)
+ 
+    return(p)
+}
+
+```
+
+
+```{r CreateDataset}
+#get inputs from excel file
+  wb<-read_excel("./ramps.xlsx", sheet="wb")
+  ramps<-read_excel("./ramps.xlsx", sheet="ramps") %>%
+    filter(!is.na(r.bottom))
+  sources<-read_excel("./ramps.xlsx", sheet="sources")
+  
+  #this gets rid of any waterbodys with no ramps
+  wb<-wb %>%
+    right_join(ramps, by="wb") %>%
+    select(wb, url, source, con.pool, max.ele, min.ele, pic) %>%
+    filter(!is.na(wb)) %>%
+    unique() %>%
+    arrange(wb)
+
+#scrape current elevations
+  myFinalData<-list()
+  
+  #get BOR data
+  wb.bor<-wb %>%
+    filter(source==1) %>%
+    select(wb, url)
+  myFinalData$Bor<-getBorData(wb.bor)
+  rm(wb.bor)
+  
+  #get Sherman data
+  myFinalData$Sher<-getShermanData()
+
+  #get Lewis and Clark data
+  #myFinalData$Coe<-getLcData()
+
+  #get CPPD data
+  myFinalData$Cppd<-getCppdData()
+
+  #Combine all data
+  myFinalData$All<-rbind(myFinalData$Bor,myFinalData$Sher, myFinalData$Coe, myFinalData$Cppd) %>% 
+    mutate(date=format(ymd(date), format="%m/%d/%Y")) %>%
+    arrange(wb)
+  myFinalData$All$date[is.na(myFinalData$All$date)]<-"Date Unknown"
+
+#wrangle data
+  #remove commas from elevation character scrape
+  myFinalData$All$ele<-gsub(",", "", myFinalData$All$ele)
+  myFinalData$All<-myFinalData$All %>%
+    right_join(ramps, by="wb") %>%
+    left_join(wb, by="wb") %>%
+    filter(!is.na(r.name)) %>%
+    filter(!is.na(ele)) %>%
+    mutate(r.title=paste(r.name, " (", date, ")", sep="")) %>%
+    mutate(ele=as.numeric(ele),
+            r.max=as.numeric(max.ele),
+            r.min=as.numeric(min.ele)) %>%
+    rename(r.cp=con.pool) %>%
+    mutate(oos_flag=(r.bottom + 2 > ele) | (r.top<ele)) %>%
+    mutate(oos="") %>%
+    mutate(oos=replace(oos, oos_flag, "Out Of Service"))
+
+```
+
+---
+title: Boat Ramp Conditions For Selected Nebr. Reservoirs
+date: '`r format(Sys.Date(), "%B %d, %Y")` '
+header-includes:
+- \usepackage{fancyhdr}
+- \pagestyle{fancy}
+- \fancyhead{}
+- \fancyhead[LE,RO]{\thepage}
+- \fancyfoot[CO,CE]{`r paste("Report generated on", Sys.time())`}
+geometry: margin=1.0in
+---
+
+The information presented in the following pages represents the information available at the time the report was generated and has been aggregated from external sources.  No guarantees are provided on the accuracy of the information in this report and no assurances are provided on the status or availability of any individual boat launch facility.  Pleace contact the appropiate facility managers to determine usability of any access facilities.  
+
+In addition, any given boat ramp will be out-of-service when water levels are anywhere from 2-4 feet ABOVE the end of the ramp depending on vehicle/trailer configurations.  Individual ramps in this report have been labeled "Out-Of-Service" if water elevations are less than 2 feet above the end of the ramp or if water levels are above the top of the ramp.  
+
+\tableofcontents
+
+\newpage
+
+#Sources
+
+Information for this report was gathered from: `r paste(sources$Source, collapse=", ")`, and the Nebraska Game and Parks Commission.
+
+Specific sources of current water elevations were:
+
+```{r SourceTable}
+op<-wb %>%
+  select(Reservoir=wb, Source=url) %>%
+  arrange(Reservoir) %>%
+  filter(Reservoir != "McConaughy2")
+kable(op, row.names=FALSE)
+```
+
+#Current Water Levels
+
+```{r CurrentLevels}
+op<-myFinalData$All %>% 
+  mutate(ftDown=r.cp-ele) %>%
+  select(Reservoir=wb, Elevation=ele, 'Conservation Pool Elevation'=r.cp, 'Feet Below Conservation Pool'=ftDown, 'Elevation Date'=date) %>%
+  unique() %>%
+  arrange(Reservoir) %>%
+  filter(Reservoir != "McConaughy2")
+kable(op, row.names=FALSE)
+```
+
+\newpage
+
+```{r create wb pages, results="asis"}
+
+
+  #create page
+  for (intX in 1:length(wb$wb)) {
+  #use if loop to control for error if a scraping failed
+    if (nrow(myFinalData$All[myFinalData$All$wb==wb$wb[intX],]) > 0){
+      #insert ramp map here
+      cat("  \n#", gsub("2", "", wb$wb[intX]), "  \n")
+      if (!is.na(wb$pic[intX])){
+        cat("  \n\\includegraphics[height=3.5in]{", paste("pics/", wb$pic[intX], sep=""),"}  \n", sep="")
+        cat("  \n")
+      }
+      print(plotRamp(myFinalData$All[myFinalData$All$wb==wb$wb[intX],]))
+      cat("\n\\newpage")
+      cat("  \n")
+    }
+  }
+
+```
+
