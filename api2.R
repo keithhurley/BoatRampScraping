@@ -6,32 +6,31 @@ library(ggplot2)
 library(base64enc)
 library(stringr)
 
-# Source your getData.R file which loads 'myData', 'plotRamp', etc.
 source("getData.R")  
 
 
-#* Get elevation data for a lake by wbCode
+#* Get elevation data for a lake by waterbody code
 #* @param myWbCode The unique waterbody code.
 #* @get /elevation
 function(myWbCode = "") {
   if(myWbCode == ""){
-    res <- list(error = "Please supply a valid wbCode")
+    res <- list(error = "Please supply a valid waterbody code")
   } else {
     res <- myData %>%
       filter(myWbCode == wbCode) %>%
       select("Waterbody Name" = name, "Conservation_Pool"=r.cp, "Elevation" = elevation, "Last_Updated" = updatedDate, Source) %>%
       distinct()
-    if(nrow(res) == 0) res <- list(error = "No data found for this wbCode")
+    if(nrow(res) == 0) res <- list(error = "No data found for this waterbody code")
   }
   res
 }
 
-#* Get elevation data for a lake's ramps by wbCode
+#* Get elevation data for a lake's ramps by waterbody code
 #* @param myWbCode The unique waterbody code.
 #* @get /ramps
 function(myWbCode = "") {
   if(myWbCode == ""){
-    res <- list(error = "Please supply a valid wbCode")
+    res <- list(error = "Please supply a valid waterbody code")
   } else {
     res <- myData %>%
       filter(myWbCode == wbCode) %>%
@@ -47,24 +46,24 @@ function(myWbCode = "") {
              "Longitude" = r.long,
              "WaterbodyCode" = wbCode,
              "OutOfService_Flag" = oos)
-    if(nrow(res) == 0) res <- list(error = "No data found for this wbCode")
+    if(nrow(res) == 0) res <- list(error = "No data found for this waterbody code")
   }
   res
 }
 
-#* Return the ramp plot for the ramp specified by its index in myData.
-#* @param index The row number (as a string or numeric) in myData for the ramp.
+#* Return the ramp plot for the ramp specified by its index in the ramps list api
+#* @param id The id number in the ramps list api
 #* @get /rampPlot
 #* @serializer contentType list(type="image/png")
-function(index = NA) {
-  if(is.na(index) || !nzchar(index)) {
-    stop("Please supply a valid index parameter.")
+function(id = NA) {
+  if(is.na(id) || !nzchar(id)) {
+    stop("Please supply a valid id parameter.")
   }
-  index <- as.numeric(index)
-  if(index < 1 || index > nrow(myData)) {
+  id <- as.numeric(id)
+  if(id < 1 || id > nrow(myData)) {
     stop("Index out of bounds.")
   }
-  rampData <- myData[index, ]
+  rampData <- myData[id, ]
   p <- plotRamp(rampData)
   
   # Save the plot to a temporary PNG file.
@@ -77,8 +76,8 @@ function(index = NA) {
   readBin(tmp, "raw", n = file.info(tmp)$size)
 }
 
-#* List available ramps.
-#* Returns a JSON list of available ramps (r.name) along with an index number.
+#* List available ramps
+#* Returns a JSON list of available ramps (r.name) along with an id number
 #* @get /rampList
 #* @serializer json
 function() {
@@ -86,14 +85,14 @@ function() {
   available <- myData %>%
     filter(!is.na(r.name)) %>%
     mutate(index = row_number()) %>%
-    select(index, r.name) %>%
+    select(rampId=index, rampName=r.name, waterbodyName=name, waterbodyCode=wbCode) %>%
     distinct()
   
   return(available)
 }
 
-#* Return ramp plots for all ramps on a waterbody.
-#* @param wbCode The waterbody code.
+#* Return ramp plots for all ramps on a waterbody
+#* @param wbCode The waterbody code
 #* @get /waterbodyRampPlots
 #* @serializer json
 function(wbCode = "") {

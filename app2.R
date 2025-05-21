@@ -65,6 +65,14 @@ ui <- dashboardPage(
       .carousel-indicators li.active {
       background-color:red;
       }
+      
+      .box-body {
+        padding-bottom: 50px;
+      }
+      
+      .carousel-indicators {
+        bottom: -50px;
+      }
     ")),
     
     # Top row: lake selector aligned to the right
