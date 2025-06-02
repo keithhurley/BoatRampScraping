@@ -157,6 +157,7 @@ server <- function(input, output, session) {
       pull(pic) %>%
       unique()
     picPath <- file.path("pics", picName)
+    print(paste0("filePath:", picPath))
     # Use a placeholder if the file doesn't exist
     if (!file.exists(picPath)) {
       picPath <- file.path("www", "placeholder.png")
