@@ -24,110 +24,176 @@ elevationsTable <- myData %>%
   ungroup()
 
 ui <- dashboardPage(
-  dashboardHeader(title = "Boat Ramp Usability"),
-  dashboardSidebar(
-    collapsed = TRUE,
-    width = 500,
-    # Constrain the table output within a div
-    div(style = "overflow-x: auto;", tableOutput("elevTable"))
+  dashboardHeader(
+    title = "Boat Ramp Conditions",
+    # Add a custom link to the header for the Data Table
+    tags$li(class = "dropdown",
+            actionLink("showData", "Data Table", icon = icon("table"))
+    )
   ),
+  dashboardSidebar(disable = TRUE), # Disable the sidebar
   dashboardBody(
-    # Include the Panzoom JS library and custom JS code
+    # Include the Panzoom JS library
     tags$head(
       tags$script(src = "https://unpkg.com/@panzoom/panzoom/dist/panzoom.min.js")
     ),
-    # Custom CSS to constrain the image container and control image display
+    # Custom CSS
     tags$style(HTML("
-      #panzoomContainer {
+      /* Panzoom Container Styles - Fixed Height */
+      .panzoom-parent {
         width: 100%;
-        height: 300px;
+        height: 600px; /* Equal height */
         overflow: hidden;
+        border: 1px solid #ddd;
+        background-color: #f0f0f0;
         position: relative;
       }
-      #panzoomContainer img {
+      .panzoom-content {
+        width: 100%; 
+        height: 100%;
+      }
+      .panzoom-content img {
         width: 100%;
         height: 100%;
-        object-fit: contain; /* Scale the image to show the entire content */
+        object-fit: contain;
         display: block;
-        margin: 0 auto;
       }
       
-      .selectize-input {
-        padding-right:40px;
+      /* Ramp Plot Container - fixed height, scrollable, background */
+      .ramp-scroll-container {
+        height: 600px; /* Equal height */
+        overflow-y: auto;
+        border: 1px solid #a0a0a0; /* Slightly darker border for visibility */
+        padding: 10px;
+        background-color: #f9f9f9; /* Light gray background */
+      }
+      .ramp-plot-card {
+        margin-bottom: 40px; 
+        border: 1px solid #ddd;
+        padding: 5px;
+        border-radius: 5px;
+        background-color: #fff;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1); /* Subtle shadow */
       }
       
-      /* Increase font sizes for UI elements */
-      body, .content-wrapper, .content, .box, .box-header, .box-title, 
-      .control-label, .selectize-input, .shiny-input-container {
-        font-size: 14px;
+      /* General Styles */
+      .box-header { font-weight: bold; }
+      .content-wrapper { background-color: #ecf0f5; }
+      
+      /* Top Card Flex Alignment */
+      .top-card-flex {
+        display: flex;
+        align-items: center; /* Vertically align items */
+        flex-wrap: wrap;
+        gap: 20px;
       }
       
-      .carousel-indicators li.active {
-      background-color:red;
+      /* Fix Shiny Input Margin in Flex container */
+      .top-card-flex .form-group {
+        margin-bottom: 0px !important;
       }
       
-      .box-body {
-        padding-bottom: 50px;
+      .stats-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        align-items: center;
+        font-size: 16px;
+      }
+      .stat-item {
+        /* No extra padding needed with gap */
       }
       
-      .carousel-indicators {
-        bottom: -50px;
+      /* Responsive Helpers - Ensure columns have padding when stacked/grid */
+      .col-lg-8, .col-lg-4 {
+        padding-left: 15px;
+        padding-right: 15px;
       }
     ")),
     
-    # Top row: lake selector aligned to the right
+    # --- Stacked Layout ---
+    
+    # 1. Top Card: Lake (Full Width)
     fluidRow(
       column(width = 12,
-             div(style = "display: flex; align-items: center; justify-content: flex-end; padding: 10px;",
-                 tags$h3("Choose a lake:", style = "margin: 0 5px 0 0;"),
-                 selectInput("selectedLake", label = NULL, choices = sort(unique(myData$name)))
-             )
-      )
-    ),
-    # Main content row: left = lake picture; right = ramp plots carousel
-    fluidRow(
-      column(width = 6,
              box(
-               title = uiOutput("lakeNameHeader"),
+               title = "Lake",
                status = "primary",
                solidHeader = TRUE,
                width = NULL,
-               div(id = "panzoomContainer",
-                   imageOutput("lakePic", height = "300px")
+               div(class = "top-card-flex",
+                   div(style = "min-width: 250px;",
+                       selectInput("selectedLake", label = NULL, choices = sort(unique(myData$name)))
+                   ),
+                   uiOutput("topLakeStats")
                )
              )
-      ),
-      column(width = 6,
-             box(
-               title = "Ramp Plots",
-               status = "primary",
-               solidHeader = TRUE,
-               width = NULL,
-               # Render a UI output that holds a carousel.
-               uiOutput("rampCarousel")
-             )
       )
     ),
-    # Custom JavaScript to initialize and reinitialize Panzoom for the lake picture
+    
+    # 2. Main Visuals Row: Map (2/3) + Ramps (1/3) on Large; Stack on Medium
+    fluidRow(
+      # Map Card - Info Status (Light Blue)
+      div(class = "col-lg-8",
+          box(
+            title = "Ramps",
+            status = "info", 
+            solidHeader = TRUE,
+            width = NULL,
+            div(class = "panzoom-parent", id = "panzoom-parent",
+                div(class = "panzoom-content", id = "panzoom-element",
+                    imageOutput("lakePic", height = "100%")
+                )
+            ),
+            helpText("Scroll to zoom, drag to pan. Double-click to reset.")
+          )
+      ),
+      
+      # Ramp Plots Card - Info Status (Light Blue)
+      div(class = "col-lg-4",
+          box(
+            title = "Ramp Status",
+            status = "info",
+            solidHeader = TRUE,
+            width = NULL,
+            div(class = "ramp-scroll-container",
+                uiOutput("rampPlotsList")
+            )
+          )
+      )
+    ),
+    
+    # Custom JavaScript for Panzoom
     tags$script(HTML("
+      var panzoomInstance;
+      
       function initPanzoom() {
-        const elem = document.getElementById('panzoomContainer');
-        if (elem) {
-          const panzoomInstance = Panzoom(elem, {
+        var elem = document.getElementById('panzoom-element');
+        var parent = document.getElementById('panzoom-parent');
+        
+        if (elem && parent) {
+          if (panzoomInstance) { panzoomInstance.destroy(); }
+          
+          panzoomInstance = Panzoom(elem, {
             maxScale: 10,
             contain: 'outside',
             startTransform: 'scale(1) translate(0px, 0px)'
           });
-          elem.addEventListener('wheel', panzoomInstance.zoomWithWheel);
+          
+          parent.addEventListener('wheel', panzoomInstance.zoomWithWheel);
+          
+          parent.addEventListener('dblclick', function() {
+           panzoomInstance.reset();
+          });
         }
       }
-      
-      document.addEventListener('DOMContentLoaded', function() {
-        initPanzoom();
+
+      $(document).on('shiny:connected', function() {
+          setTimeout(initPanzoom, 500); 
       });
       
       Shiny.addCustomMessageHandler('reinitPanzoom', function(message) {
-        initPanzoom();
+         setTimeout(initPanzoom, 500);
       });
     "))
   )
@@ -135,120 +201,131 @@ ui <- dashboardPage(
 
 server <- function(input, output, session) {
   
-  # Render the elevation table in the sidebar
+  # Reactive Data
+  selectedLakeData <- reactive({
+    req(input$selectedLake)
+    myData %>% filter(name == input$selectedLake)
+  })
+  
+  # --- Top Card Outputs ---
+  
+  output$topLakeStats <- renderUI({
+    req(input$selectedLake)
+    stats <- elevationsTable %>% filter(name == input$selectedLake)
+    
+    div(class = "stats-container",
+        div(class = "stat-item", strong("Elevation: "), stats$`Current Elevation`),
+        div(class = "stat-item", strong("Pool: "), stats$`Conservation Pool`),
+        div(class = "stat-item", strong("Last Updated: "), format(stats$`Last Updated`, "%Y-%m-%d")),
+        div(class = "stat-item", em(stats$Source))
+    )
+  })
+  
+  # --- Map Outputs ---
+  
+  output$lakePic <- renderImage({
+    req(input$selectedLake)
+    picName <- selectedLakeData() %>% pull(pic) %>% unique()
+    
+    picPath <- file.path("pics", picName)
+    
+    if (!length(picName) || is.na(picName) || !file.exists(picPath)) {
+      picPath <- file.path("www", "placeholder.png")
+    }
+    
+    list(src = picPath,
+         contentType = "image/png",
+         width = "100%",
+         height = "100%", 
+         alt = paste("Picture of", input$selectedLake))
+  }, deleteFile = FALSE)
+  
+  observeEvent(input$selectedLake, {
+    session$sendCustomMessage("reinitPanzoom", list())
+  })
+  
+  # --- Ramp Plots Outputs ---
+  output$rampPlotsList <- renderUI({
+    req(input$selectedLake)
+    rampNames <- unique(selectedLakeData()$r.name)
+    
+    if (length(rampNames) == 0) {
+      return(p("No ramps found for this lake."))
+    }
+    
+    plot_output_list <- lapply(rampNames, function(rn) {
+      clean_rn <- gsub("[^a-zA-Z0-9]", "_", rn)
+      plotname <- paste0("plot_", clean_rn)
+      
+      div(
+        class = "ramp-plot-card", 
+        plotOutput(plotname, height = "400px")
+      )
+    })
+    
+    do.call(tagList, plot_output_list)
+  })
+  
+  # Generate Plots - With Data Validation
+  observe({
+    req(input$selectedLake)
+    rampNames <- unique(selectedLakeData()$r.name)
+    
+    for (rn in rampNames) {
+      local({
+        my_rn <- rn
+        clean_rn <- gsub("[^a-zA-Z0-9]", "_", my_rn)
+        plotname <- paste0("plot_", clean_rn)
+        
+        output[[plotname]] <- renderPlot({
+          # Retrieve data for this ramp
+          filteredData <- selectedLakeData() %>% filter(r.name == my_rn)
+          
+          # VALIDATION: Check if valid data exists before plotting
+          # This prevents "no non-missing arguments to min" errors
+          if (nrow(filteredData) == 0) return(NULL)
+          if (all(is.na(filteredData$r.bottom)) || all(is.na(filteredData$r.top))) {
+            # Return an empty plot with a message or NULL
+             plot(c(0, 1), c(0, 1), ann = F, bty = 'n', type = 'n', xaxt = 'n', yaxt = 'n')
+             text(x = 0.5, y = 0.5, paste("Insufficient data for ramp:", my_rn), 
+                  cex = 1.6, col = "red")
+             return()
+          }
+          
+          plotRamp(filteredData)
+        })
+      })
+    }
+  })
+  
+  # --- Data Table Modal Logic ---
+  
+  observeEvent(input$showData, {
+    showModal(modalDialog(
+      title = "Lake Elevations Data",
+      size = "l", 
+      downloadButton("downloadCsv", "Download CSV"),
+      br(), br(),
+      div(style = "overflow-x: auto;", tableOutput("elevTable")),
+      easyClose = TRUE,
+      footer = modalButton("Close")
+    ))
+  })
+  
   output$elevTable <- renderTable({
     elevationsTable %>%
       select(`Name`=name, `Conservation Pool`, `Current Elevation`, `Last Updated`, Source) %>%
       mutate_if(is.Date, ~format(., "%m-%d-%Y"))
   })
   
-  # Dynamic header for the picture box showing the currently selected lake
-  output$lakeNameHeader <- renderUI({
-    req(input$selectedLake)
-    paste(input$selectedLake)
-  })
-  
-  # Render the lake picture for the selected lake
-  output$lakePic <- renderImage({
-    req(input$selectedLake)
-    # Get the picture filename for the selected lake (assumes one picture per lake)
-    picName <- myData %>%
-      filter(name == input$selectedLake) %>%
-      pull(pic) %>%
-      unique()
-    picPath <- file.path("pics", picName)
-    print(paste0("filePath:", picPath))
-    # Use a placeholder if the file doesn't exist
-    if (!file.exists(picPath)) {
-      picPath <- file.path("www", "placeholder.png")
+  output$downloadCsv <- downloadHandler(
+    filename = function() {
+      paste("lake_elevations_", Sys.Date(), ".csv", sep = "")
+    },
+    content = function(file) {
+      write.csv(elevationsTable, file, row.names = FALSE)
     }
-    list(src = picPath,
-         contentType = "image/png",
-         alt = paste("Picture of", input$selectedLake))
-  }, deleteFile = FALSE)
-  
-  # Reactive expression to generate individual ramp plots as base64 images
-  rampPlots <- reactive({
-    req(input$selectedLake)
-    # Get unique ramp names for the selected lake
-    rampNames <- unique(myData$r.name[myData$name == input$selectedLake])
-
-    lapply(rampNames, function(rn) {
-      filteredData <- myData %>%
-        filter(name == input$selectedLake, r.name == rn)
-      tmp <- tempfile(fileext = ".png")
-      png(tmp, width = 600, height = 400)
-      print(plotRamp(filteredData))
-      dev.off()
-      # Encode the image in base64 for embedding
-      encoded <- dataURI(file = tmp, mime = "image/png")
-      list(src = encoded, alt = rn)
-    })
-  })
-  
-  # Render the ramp plots carousel UI using Bootstrap 3 markup.
-  output$rampCarousel <- renderUI({
-    imgs <- rampPlots()
-    if (length(imgs) == 0) return(NULL)
-    
-    # If there's only one ramp plot, just show the image
-    if (length(imgs) == 1) {
-      return(
-        tags$div(
-          tags$img(class = "img-responsive",
-                   src = imgs[[1]]$src,
-                   alt = imgs[[1]]$alt,
-                   style = "max-height:400px; object-fit: contain;")
-        )
-      )
-    }
-    
-    # Otherwise, build the carousel with indicators and controls
-    # Create carousel indicators
-    indicators <- tags$ol(class = "carousel-indicators",
-                          lapply(seq_along(imgs) - 1, function(i) {
-                            tags$li(`data-target` = "#carouselExample", `data-slide-to` = i,
-                                    class = if(i == 0) "active" else NULL)
-                          })
-    )
-    
-    # Create carousel items (each slide)
-    items <- tags$div(class = "carousel-inner", role = "listbox",
-                      lapply(seq_along(imgs), function(i) {
-                        tags$div(class = paste("item", if(i == 1) "active" else ""),
-                                 tags$img(class = "img-responsive",
-                                          src = imgs[[i]]$src,
-                                          alt = imgs[[i]]$alt,
-                                          style = "max-height:400px; object-fit: contain;")
-                        )
-                      })
-    )
-    
-    # Carousel controls (previous/next)
-    controls <- tagList(
-      tags$a(class = "left carousel-control", href = "#carouselExample", role = "button", `data-slide` = "prev",
-             tags$span(class = "glyphicon glyphicon-chevron-left", `aria-hidden` = "true"),
-             tags$span(class = "sr-only", "Previous")
-      ),
-      tags$a(class = "right carousel-control", href = "#carouselExample", role = "button", `data-slide` = "next",
-             tags$span(class = "glyphicon glyphicon-chevron-right", `aria-hidden` = "true"),
-             tags$span(class = "sr-only", "Next")
-      )
-    )
-    
-    # Wrap everything in the main carousel container.
-    tags$div(id = "carouselExample", class = "carousel slide", `data-ride` = "carousel",
-             indicators,
-             items,
-             controls
-    )
-  })
-  
-  
-  # Reinitialize Panzoom each time the selected lake changes.
-  observeEvent(input$selectedLake, {
-    session$sendCustomMessage("reinitPanzoom", list())
-  })
+  )
 }
 
 shinyApp(ui, server)

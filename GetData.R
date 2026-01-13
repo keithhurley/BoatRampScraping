@@ -112,11 +112,13 @@ plotRamp<-function(myData){
     #scale_alpha_manual(limits=c(0,1), values=c(0,0.3), guide=FALSE) +
     scale_alpha_manual(limits = factor(c(0, 1)), values = c(0, 0.3), guide = FALSE)+
     theme_void() +
-    labs(title=paste(myData$name[[1]], " - ", myData$r.name[[1]])) +
+    labs(title = myData$name[[1]],
+         subtitle = stringr::str_wrap(myData$r.name[[1]], width = 45)) +
     theme(panel.background=element_rect(color="NA", fill=NA),
           strip.background = element_rect(fill="gainsboro", color="black"),
           strip.text=element_text(size=24),
-          plot.title=element_text(size=20, face="bold", hjust=0.5)) #+
+          plot.title=element_text(size=20, face="bold", hjust=0.5),
+          plot.subtitle=element_text(size=14, hjust=0.5)) #+
     #facet_wrap(~r.name, ncol=2)
   
   return(p)

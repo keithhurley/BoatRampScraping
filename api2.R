@@ -9,6 +9,13 @@ library(stringr)
 source("getData.R")  
 
 
+#* Redirect to API Docs
+#* @get /
+function(res) {
+  res$status <- 302
+  res$setHeader("Location", "./__docs__/")
+}
+
 #* Get elevation data for a lake by waterbody code
 #* @param myWbCode The unique waterbody code.
 #* @get /elevation
