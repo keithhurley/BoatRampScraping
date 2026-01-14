@@ -1,0 +1,10 @@
+proxy:
+  title: ShinyProxy
+  specs:
+    - id: boat-ramps
+      display-name: Boat Ramp Conditions
+      description: Boat Ramp Conditions and API
+      container-image: boat-ramps
+      port: 3838
+      container-network: shinyproxy-net  # Optional: ensure this matches your docker network
+      # usage-stats-url: http://... optional
